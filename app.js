@@ -41,6 +41,14 @@ class PencariMovieApp {
     this._isCategoryPageOpen = false;
     this._cameFromCategory = false;
 
+    // ── Media player state ──
+    this._playerRetryTimer = null;
+    this._playerRetryCount = 0;
+    this._playerStreamUrl = '';
+    this._playerReady = false;
+    this._playerStarting = false;
+    this._playerMaxRetries = 8;
+
     // ── Cache ──
     this._cache = new Map();
     this._cachePrefix = 'pencarimovie_cache:';
@@ -280,68 +288,27 @@ class PencariMovieApp {
       if (url) window.location.href = url;
     });
 
-    // Media streams can briefly emit an error while the Telegram/MadelineProto
-    // stream is becoming ready. Do not show the fatal error UI immediately.
     const handleMediaPlaybackError = (mediaEl) => {
-      if (!mediaEl || !mediaEl.src) return;
-
-      const source = mediaEl.src;
-      console.warn('[Player] Media error received; waiting for stream readiness:', source);
-
-      // If the stream becomes usable during the grace period, the error was
-      // transient and no error UI should be shown.
-      setTimeout(() => {
-        if (mediaEl.src !== source) return;
-
-        // readyState >= 2 means the browser has enough data to play.
-        if (mediaEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-          console.info('[Player] Stream recovered after transient media error.');
-          return;
-        }
-
-        console.warn('[Player] Media stream is still unavailable:', source);
-
-        const titleEl = this.$('#fileDetailTitle');
-        const tagsEl = this.$('#fileDetailTags');
-
-        if (titleEl) titleEl.textContent = 'Stream playback failed';
-
-        if (tagsEl) {
-          tagsEl.innerHTML = `
-            <div style="background:rgba(255,107,53,0.15);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;margin-top:8px;">
-              <p style="color:var(--accent);font-weight:600;margin:0 0 4px 0;"><i class="fas fa-exclamation-triangle"></i> Cannot play media stream</p>
-              <p style="color:var(--text-secondary);font-size:0.85rem;margin:0 0 8px 0;">The stream could not be started. Please try again.</p>
-              <button id="fileDetailReconnectBtn" class="stream-btn stream-btn--primary stream-btn--sm" style="background:var(--accent);color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">
-                <i class="fas fa-rotate-right"></i> Try Again
-              </button>
-            </div>
-          `;
-
-          const retryBtn = this.$('#fileDetailReconnectBtn');
-          if (retryBtn) {
-            retryBtn.addEventListener('click', () => {
-              if (mediaEl.src !== source) return;
-
-              if (titleEl) titleEl.textContent = 'Loading stream...';
-              if (tagsEl) {
-                tagsEl.innerHTML = '<span style="color:var(--text-secondary)">Connecting to stream...</span>';
-              }
-
-              mediaEl.load();
-              mediaEl.play().catch(() => {});
-            });
-          }
-        }
-      }, 3000);
+      this._handleMediaPlaybackError(mediaEl);
     };
 
     const vEl = this.$('#fileDetailVideo');
     if (vEl) {
       vEl.addEventListener('error', () => handleMediaPlaybackError(vEl));
+      vEl.addEventListener('loadedmetadata', () => this._handleMediaReady(vEl));
+      vEl.addEventListener('canplay', () => this._handleMediaReady(vEl));
+      vEl.addEventListener('playing', () => this._handleMediaReady(vEl));
+      vEl.addEventListener('waiting', () => this._handleMediaWaiting(vEl));
+      vEl.addEventListener('stalled', () => this._handleMediaWaiting(vEl));
     }
     const aEl = this.$('#fileDetailAudio');
     if (aEl) {
       aEl.addEventListener('error', () => handleMediaPlaybackError(aEl));
+      aEl.addEventListener('loadedmetadata', () => this._handleMediaReady(aEl));
+      aEl.addEventListener('canplay', () => this._handleMediaReady(aEl));
+      aEl.addEventListener('playing', () => this._handleMediaReady(aEl));
+      aEl.addEventListener('waiting', () => this._handleMediaWaiting(aEl));
+      aEl.addEventListener('stalled', () => this._handleMediaWaiting(aEl));
     }
 
     // ── Category Page ──
@@ -609,6 +576,136 @@ class PencariMovieApp {
       "'": '&#039;',
       '"': '"'
     })[char]);
+  }
+
+  /**
+   * Clean Telegram file names for display without assuming a specific
+   * naming convention. Keeps the original extension because it can be
+   * useful when identifying a file in the UI.
+   */
+  cleanMediaTitle(value) {
+    const title = String(value ?? 'File').trim();
+    if (!title) return 'File';
+    return title
+      .replace(/[_]+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  _clearPlayerRetry() {
+    if (this._playerRetryTimer) {
+      clearTimeout(this._playerRetryTimer);
+      this._playerRetryTimer = null;
+    }
+  }
+
+  _setPlayerStatus(message, type = 'loading') {
+    const tagsEl = this.$('#fileDetailTags');
+    if (!tagsEl || !message) return;
+
+    const isError = type === 'error';
+    const isReady = type === 'ready';
+    const bg = isError ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.06)';
+    const border = isError ? 'var(--accent)' : 'rgba(255,255,255,0.12)';
+    const color = isError ? 'var(--accent)' : 'var(--text-secondary)';
+    const icon = isError ? 'fa-exclamation-triangle' : (isReady ? 'fa-check-circle' : 'fa-circle-notch fa-spin');
+
+    tagsEl.innerHTML = `
+      <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:9px 12px;margin-top:8px;">
+        <span style="color:${color};font-size:0.84rem;"><i class="fas ${icon}"></i> ${this.escapeHtml(message)}</span>
+      </div>
+    `;
+  }
+
+  _handleMediaReady(mediaEl) {
+    if (!mediaEl || !mediaEl.src) return;
+    if (this._playerStreamUrl && mediaEl.src !== this._playerStreamUrl) return;
+
+    this._playerReady = true;
+    this._playerStarting = false;
+    this._clearPlayerRetry();
+
+    // Do not overwrite the page title. Only replace the temporary status.
+    this._setPlayerStatus('Stream ready', 'ready');
+  }
+
+  _handleMediaWaiting(mediaEl) {
+    if (!mediaEl || !mediaEl.src || this._playerReady) return;
+    this._playerStarting = true;
+    this._setPlayerStatus('Starting stream…', 'loading');
+  }
+
+  _handleMediaPlaybackError(mediaEl) {
+    if (!mediaEl || !mediaEl.src) return;
+
+    const src = mediaEl.src;
+    if (this._playerStreamUrl && src !== this._playerStreamUrl) return;
+
+    // Browsers can emit a media error while the backend is still warming the
+    // Telegram/MadelineProto stream. Do not immediately show a fatal error.
+    if (this._playerReady || mediaEl.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      console.warn('[Player] Media error after metadata; waiting for recovery:', src);
+    } else {
+      console.warn('[Player] Media error while stream is starting:', src);
+    }
+
+    this._playerStarting = true;
+    this._setPlayerStatus('Starting stream… please wait', 'loading');
+    this._scheduleMediaRetry(mediaEl);
+  }
+
+  _scheduleMediaRetry(mediaEl) {
+    if (!mediaEl || !this._playerStreamUrl || this._playerReady) return;
+    if (this._playerRetryTimer) return;
+
+    if (this._playerRetryCount >= this._playerMaxRetries) {
+      console.error('[Player] Stream did not become ready after retries:', this._playerStreamUrl);
+      this._playerStarting = false;
+      this._setPlayerStatus('The stream could not be started. Please try again.', 'error');
+      return;
+    }
+
+    const delays = [1200, 1800, 2500, 3500, 5000, 7000, 9000, 12000];
+    const delay = delays[Math.min(this._playerRetryCount, delays.length - 1)];
+    this._playerRetryCount += 1;
+
+    this._setPlayerStatus(`Starting stream… attempt ${this._playerRetryCount}`, 'loading');
+
+    this._playerRetryTimer = setTimeout(() => {
+      this._playerRetryTimer = null;
+      if (this._playerReady || !this._playerStreamUrl) return;
+
+      try {
+        // Re-select the same URL. This lets the backend recover from a
+        // temporary Telegram/QUIC startup failure without changing the URL.
+        mediaEl.src = this._playerStreamUrl;
+        mediaEl.load();
+      } catch (error) {
+        console.warn('[Player] Retry load failed:', error);
+      }
+    }, delay);
+  }
+
+  _startMediaStream(mediaEl, url, poster = '') {
+    if (!mediaEl || !url) return;
+
+    this._clearPlayerRetry();
+    this._playerRetryCount = 0;
+    this._playerStreamUrl = url;
+    this._playerReady = false;
+    this._playerStarting = true;
+
+    if (poster && mediaEl.tagName === 'VIDEO') {
+      mediaEl.poster = poster;
+    }
+
+    this._setPlayerStatus('Starting stream…', 'loading');
+
+    // Setting the source starts the backend request immediately, so the
+    // Telegram stream can warm up before the user presses the native play
+    // button.
+    mediaEl.src = url;
+    mediaEl.load();
   }
 
   formatSize(bytes) {
@@ -1630,23 +1727,6 @@ class PencariMovieApp {
     `;
   }
 
-  // Safely normalize Telegram/media filenames for display.
-  // Keep this method on the class because _renderFileCard() calls it.
-  cleanMediaTitle(title) {
-    if (title === null || title === undefined) return 'File';
-
-    let value = String(title).trim();
-    if (!value) return 'File';
-
-    // Remove common media extensions from the displayed title only.
-    value = value.replace(/\.(mp4|mkv|avi|mov|wmv|webm|m4v|mp3|m4a|aac|flac|wav|srt|ass|zip|rar|7z)$/i, '');
-
-    // Normalize repeated whitespace without changing the actual file name.
-    value = value.replace(/\s+/g, ' ').trim();
-
-    return value || 'File';
-  }
-
   _renderFileCard(file) {
     const rawTitle = file.title || 'File';
     const title = this.cleanMediaTitle(rawTitle);
@@ -2051,6 +2131,11 @@ class PencariMovieApp {
     this.$('#fileDetailSize').textContent = '';
 
     // Reset player state before showing new file detail
+    this._clearPlayerRetry();
+    this._playerRetryCount = 0;
+    this._playerStreamUrl = '';
+    this._playerReady = false;
+    this._playerStarting = false;
     const playerEl = this.$('#fileDetailPlayer');
     const videoEl = this.$('#fileDetailVideo');
     const audioEl = this.$('#fileDetailAudio');
@@ -2188,15 +2273,14 @@ class PencariMovieApp {
 
       if (mediaType === 'video') {
         if (videoEl) {
-          videoEl.src = streamUrl;
-          if (thumbnail) videoEl.poster = thumbnail;
           videoEl.classList.remove('hidden');
+          this._startMediaStream(videoEl, streamUrl, thumbnail);
         }
         if (audioEl) audioEl.classList.add('hidden');
       } else {
         if (audioEl) {
-          audioEl.src = streamUrl;
           audioEl.classList.remove('hidden');
+          this._startMediaStream(audioEl, streamUrl);
         }
         if (videoEl) videoEl.classList.add('hidden');
       }
@@ -2242,6 +2326,11 @@ class PencariMovieApp {
     // attribute is removed; setting the IDL property to empty string is
     // more reliable at forcing the resource selection algorithm to unload
     // the current media when followed by load().
+    this._clearPlayerRetry();
+    this._playerRetryCount = 0;
+    this._playerStreamUrl = '';
+    this._playerReady = false;
+    this._playerStarting = false;
     const videoEl = this.$('#fileDetailVideo');
     const audioEl = this.$('#fileDetailAudio');
     const playerEl = this.$('#fileDetailPlayer');
