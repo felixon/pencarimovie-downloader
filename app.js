@@ -280,27 +280,59 @@ class PencariMovieApp {
       if (url) window.location.href = url;
     });
 
+    // Media streams can briefly emit an error while the Telegram/MadelineProto
+    // stream is becoming ready. Do not show the fatal error UI immediately.
     const handleMediaPlaybackError = (mediaEl) => {
       if (!mediaEl || !mediaEl.src) return;
-      console.warn('[Player] Media playback failed for source:', mediaEl.src);
-      const titleEl = this.$('#fileDetailTitle');
-      const tagsEl = this.$('#fileDetailTags');
-      if (titleEl) titleEl.textContent = 'Stream playback failed';
-      if (tagsEl) {
-        tagsEl.innerHTML = `
-          <div style="background:rgba(255,107,53,0.15);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;margin-top:8px;">
-            <p style="color:var(--accent);font-weight:600;margin:0 0 4px 0;"><i class="fas fa-exclamation-triangle"></i> Cannot play media stream</p>
-            <p style="color:var(--text-secondary);font-size:0.85rem;margin:0 0 8px 0;">Make sure your Telegram bot is connected and the MadelineProto session is active.</p>
-            <button id="fileDetailReconnectBtn" class="stream-btn stream-btn--primary stream-btn--sm" style="background:var(--accent);color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">
-              <i class="fas fa-key"></i> Connect Bot
-            </button>
-          </div>
-        `;
-        const reconnectBtn = this.$('#fileDetailReconnectBtn');
-        if (reconnectBtn) {
-          reconnectBtn.addEventListener('click', () => this.showSettingsGate());
+
+      const source = mediaEl.src;
+      console.warn('[Player] Media error received; waiting for stream readiness:', source);
+
+      // If the stream becomes usable during the grace period, the error was
+      // transient and no error UI should be shown.
+      setTimeout(() => {
+        if (mediaEl.src !== source) return;
+
+        // readyState >= 2 means the browser has enough data to play.
+        if (mediaEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          console.info('[Player] Stream recovered after transient media error.');
+          return;
         }
-      }
+
+        console.warn('[Player] Media stream is still unavailable:', source);
+
+        const titleEl = this.$('#fileDetailTitle');
+        const tagsEl = this.$('#fileDetailTags');
+
+        if (titleEl) titleEl.textContent = 'Stream playback failed';
+
+        if (tagsEl) {
+          tagsEl.innerHTML = `
+            <div style="background:rgba(255,107,53,0.15);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;margin-top:8px;">
+              <p style="color:var(--accent);font-weight:600;margin:0 0 4px 0;"><i class="fas fa-exclamation-triangle"></i> Cannot play media stream</p>
+              <p style="color:var(--text-secondary);font-size:0.85rem;margin:0 0 8px 0;">The stream could not be started. Please try again.</p>
+              <button id="fileDetailReconnectBtn" class="stream-btn stream-btn--primary stream-btn--sm" style="background:var(--accent);color:#fff;border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">
+                <i class="fas fa-rotate-right"></i> Try Again
+              </button>
+            </div>
+          `;
+
+          const retryBtn = this.$('#fileDetailReconnectBtn');
+          if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+              if (mediaEl.src !== source) return;
+
+              if (titleEl) titleEl.textContent = 'Loading stream...';
+              if (tagsEl) {
+                tagsEl.innerHTML = '<span style="color:var(--text-secondary)">Connecting to stream...</span>';
+              }
+
+              mediaEl.load();
+              mediaEl.play().catch(() => {});
+            });
+          }
+        }
+      }, 3000);
     };
 
     const vEl = this.$('#fileDetailVideo');
@@ -578,14 +610,7 @@ class PencariMovieApp {
       '"': '"'
     })[char]);
   }
- 
-cleanMediaTitle(value) {
-  return String(value ?? '')
-    .replace(/\.[a-z0-9]{2,5}$/i, '')
-    .replace(/[_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim() || 'File';
-}
+
   formatSize(bytes) {
     const size = Number(bytes || 0);
     if (!size) return 'Unknown size';
