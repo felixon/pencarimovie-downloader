@@ -1630,6 +1630,23 @@ class PencariMovieApp {
     `;
   }
 
+  // Safely normalize Telegram/media filenames for display.
+  // Keep this method on the class because _renderFileCard() calls it.
+  cleanMediaTitle(title) {
+    if (title === null || title === undefined) return 'File';
+
+    let value = String(title).trim();
+    if (!value) return 'File';
+
+    // Remove common media extensions from the displayed title only.
+    value = value.replace(/\.(mp4|mkv|avi|mov|wmv|webm|m4v|mp3|m4a|aac|flac|wav|srt|ass|zip|rar|7z)$/i, '');
+
+    // Normalize repeated whitespace without changing the actual file name.
+    value = value.replace(/\s+/g, ' ').trim();
+
+    return value || 'File';
+  }
+
   _renderFileCard(file) {
     const rawTitle = file.title || 'File';
     const title = this.cleanMediaTitle(rawTitle);
