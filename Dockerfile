@@ -13,7 +13,9 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
-COPY app.js /app/app.js
+# The release contains the real frontend under /app/public.
+# Replace it with the corrected app.js committed to this repository.
+COPY app.js /app/public/app.js
 COPY start-render.sh /app/start-render.sh
 
 RUN chmod +x /app/start-render.sh
