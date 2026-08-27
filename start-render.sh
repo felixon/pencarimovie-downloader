@@ -11,7 +11,7 @@ BACKEND="$ROOT_DIR/backend.php"
 # Automatically initialize the private Telegram bot session on the
 # first Nuvio stream request using the Render environment secret.
 if [ -f "$BACKEND" ] && ! grep -q "hosted auto bot login" "$BACKEND"; then
-  "$FRANKENPHP_BIN" php -r '
+  "$FRANKENPHP_BIN" php-cli -r '
     $file = $argv[1];
     $s = file_get_contents($file);
 
