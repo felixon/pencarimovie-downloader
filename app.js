@@ -578,7 +578,14 @@ class PencariMovieApp {
       '"': '"'
     })[char]);
   }
-
+ 
+cleanMediaTitle(value) {
+  return String(value ?? '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'File';
+}
   formatSize(bytes) {
     const size = Number(bytes || 0);
     if (!size) return 'Unknown size';
