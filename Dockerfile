@@ -13,7 +13,9 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
+COPY app.js /app/app.js
 COPY start-render.sh /app/start-render.sh
+
 RUN chmod +x /app/start-render.sh
 
 ENV PENCARIMOVIE_STORAGE_DIR=/app/storage
