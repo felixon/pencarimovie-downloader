@@ -42,7 +42,7 @@ function patch_once(string &$source, string $needle, string $insert, string $lab
         exit(1);
     }
 
-    $source = str_replace($needle, $insert . $needle, $source, $count);
+    $source = str_replace($needle, $insert . $needle, $count);
     if ($count !== 1) {
         fwrite(STDERR, "{$label}: unexpected replacement count\n");
         exit(1);
@@ -224,7 +224,10 @@ if (file_put_contents($file, $source, LOCK_EX) === false) {
 echo "PencariMovie Render backend patches applied\n";
 PHP
 
-    "$FRANKENPHP_BIN" php /tmp/patch_pencarimovie.php "$BACKEND"
+    # FrankenPHP exposes the PHP interpreter as the php-cli subcommand.
+    # The previous "frankenphp php" invocation caused Render to fail with
+    # "unknown command php" before the web server could start.
+    "$FRANKENPHP_BIN" php-cli /tmp/patch_pencarimovie.php "$BACKEND"
 fi
 
 echo "======================================"
