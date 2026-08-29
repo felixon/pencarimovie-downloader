@@ -27,6 +27,13 @@ RUN curl -fsSL \
     "https://raw.githubusercontent.com/aiskendi/pencarimovie-downloader/main/index.php" \
     -o /app/index.php
 
+# iPhone/Safari can take longer than PHP's default execution limit while
+# establishing/reading a Telegram-backed video stream. Disable the PHP
+# execution timeout specifically for the downloadToBrowser() streaming call.
+# Keep the existing Android/Nuvio streaming implementation unchanged.
+RUN sed -i '/\$madeline->downloadToBrowser/i\    @set_time_limit(0);\
+    @ini_set("max_execution_time", "0");' /app/backend.php
+
 # Replace the upstream frontend with the customized version committed here.
 COPY app.js /app/public/app.js
 COPY start-render.sh /app/start-render.sh
