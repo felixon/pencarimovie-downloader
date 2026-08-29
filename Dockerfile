@@ -6,8 +6,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Get the official PencariMovie runtime. The package contains FrankenPHP,
-# PHP extensions, Composer dependencies, and the public frontend assets.
 RUN curl -L \
     "https://github.com/aiskendi/pencarimovie-downloader/releases/download/v1.0.0/pencarimovie-downloader-linux-x86_64.tar.gz" \
     -o /tmp/pencarimovie.tar.gz \
@@ -15,19 +13,18 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
-# IMPORTANT: do not rely on the backend bundled inside the release archive.
-# The upstream repository contains the actively maintained backend.php and
-# index.php, including the current Nuvio/Telegram streaming implementation.
-# Pull those source files at build time so the Render deployment gets the
-# current backend while we keep our customized frontend app.js in this fork.
-RUN curl -fsSL \
-    "https://raw.githubusercontent.com/aiskendi/pencarimovie-downloader/main/backend.php" \
-    -o /app/backend.php \
-    && curl -fsSL \
-    "https://raw.githubusercontent.com/aiskendi/pencarimovie-downloader/main/index.php" \
-    -o /app/index.php
+# iPhone/Safari can take longer than PHP's default 30-second execution limit
+# while the Telegram-backed video stream is being established or read.
+# Keep the packaged runtime/backend unchanged, but disable only PHP's script
+# execution timeout so long video streams are not terminated at 30 seconds.
+RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini; then \
+        sed -Ei 's/^[;[:space:]]*max_execution_time[[:space:]]*=.*/max_execution_time = 0/' /app/bin/php.ini; \
+    else \
+        printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
+    fi
 
-# Replace the upstream frontend with the customized version committed here.
+# The release contains the real frontend under /app/public.
+# Replace it with the corrected app.js committed to this repository.
 COPY app.js /app/public/app.js
 COPY start-render.sh /app/start-render.sh
 
