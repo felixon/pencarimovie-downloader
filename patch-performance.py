@@ -28,5 +28,14 @@ if old in text:
 old = "          this.renderCategoryRows().catch((err) => console.warn('Background category rows load failed:', err));\n"
 text = text.replace(old, "", 1)
 
+# Make browser media elements explicitly use the browser's automatic preload
+# strategy. The app already assigns the stream URL and calls load() immediately;
+# this tells Chromium/Edge/Safari to fetch media data as soon as the source is
+# known, improving time-to-first-frame without downloading the whole movie.
+old = "  _startMediaStream(mediaEl, url, poster = '') {\n    if (!mediaEl || !url) return;\n\n    this._clearPlayerRetry();"
+new = "  _startMediaStream(mediaEl, url, poster = '') {\n    if (!mediaEl || !url) return;\n\n    // Start browser media buffering immediately. This is intentionally only a\n    // preload hint; the backend remains responsible for HTTP Range streaming.\n    mediaEl.preload = 'auto';\n    if (mediaEl.tagName === 'VIDEO') mediaEl.setAttribute('playsinline', '');\n\n    this._clearPlayerRetry();"
+if old in text:
+    text = text.replace(old, new, 1)
+
 path.write_text(text, encoding='utf-8')
 print('Secondary PencariMovie performance patch applied')
