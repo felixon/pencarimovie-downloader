@@ -23,6 +23,14 @@ RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
 
+# Render can provide a fixed Telegram bot token through the
+# PENCARIMOVIE_BOT_TOKEN environment variable. The upstream backend normally
+# uses the token submitted by the browser and asks WordPress to validate it.
+# On a hosted deployment we want the server-side token to be authoritative,
+# so patch the upstream bot-login handler to use the Render environment token
+# when it is present. The token is never written into the image or frontend.
+RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
+
 # The release contains the real frontend under /app/public.
 # Replace it with the corrected app.js committed to this repository.
 COPY app.js /app/public/app.js
