@@ -27,11 +27,14 @@ RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\     
 # The release contains the real frontend under /app/public.
 COPY app.js /app/public/app.js
 COPY patch-app.py /tmp/patch-app.py
+COPY patch-performance.py /tmp/patch-performance.py
 COPY start-render.sh /app/start-render.sh
 
-# Performance patch: do not make the first page wait for every category API call.
+# Performance patches: don't block first paint and don't create a large burst
+# of category API calls on small Render instances.
 RUN python3 /tmp/patch-app.py \
-    && rm -f /tmp/patch-app.py
+    && python3 /tmp/patch-performance.py \
+    && rm -f /tmp/patch-app.py /tmp/patch-performance.py
 
 RUN chmod +x /app/start-render.sh
 
