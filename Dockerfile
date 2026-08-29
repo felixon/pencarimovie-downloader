@@ -13,13 +13,6 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
-# Keep the backend source explicit instead of relying on the copy bundled
-# inside the binary release. This lets us patch the streaming endpoint safely
-# from this repository while keeping the packaged FrankenPHP/runtime.
-RUN curl -fsSL \
-    "https://raw.githubusercontent.com/aiskendi/pencarimovie-downloader/main/backend.php" \
-    -o /app/backend.php
-
 # The release contains the real frontend under /app/public.
 # Replace it with the corrected app.js committed to this repository.
 COPY app.js /app/public/app.js
