@@ -5,21 +5,10 @@ text = path.read_text(encoding='utf-8')
 
 # The first performance patch loads every category row in parallel. That is
 # better than sequential requests, but on a small Render instance it can still
-# create a burst of remote WordPress requests. Keep the first four rows eager
+# create a burst of remote WordPress requests. Keep the first three rows eager
 # and defer the rest until the browser is idle.
-old = "    await Promise.all(this.categories.map(loadCategory));"
-new = """    const initialCategories = this.categories.slice(0, 4);
-    await Promise.all(initialCategories.map(loadCategory));
-
-    const remainingCategories = this.categories.slice(4);
-    const loadRemaining = () => Promise.all(remainingCategories.map(loadCategory)).catch(() => {});
-    if (remainingCategories.length) {
-      if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(loadRemaining, { timeout: 2500 });
-      } else {
-        setTimeout(loadRemaining, 1200);
-      }
-    }"""
+old = "    const initialCategories = this.categories.slice(0, 4);"
+new = "    const initialCategories = this.categories.slice(0, 3);"
 if old in text:
     text = text.replace(old, new, 1)
 
@@ -37,5 +26,13 @@ new = "  _startMediaStream(mediaEl, url, poster = '') {\n    if (!mediaEl || !ur
 if old in text:
     text = text.replace(old, new, 1)
 
+# Search should feel responsive without hammering the remote API on every
+# keystroke. Reduce the debounce window from 400ms to 250ms; the existing
+# request/caching layer remains unchanged.
+old = "this.searchTimeout = setTimeout(() => this.doSearch(query), 400);"
+new = "this.searchTimeout = setTimeout(() => this.doSearch(query), 250);"
+if old in text:
+    text = text.replace(old, new, 1)
+
 path.write_text(text, encoding='utf-8')
-print('Secondary PencariMovie performance patch applied')
+print('PencariMovie performance tuning patch applied')
