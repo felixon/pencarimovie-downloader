@@ -13,13 +13,17 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
-# iPhone/Safari can take longer than PHP's default 30-second execution limit
-# while the Telegram-backed video stream is being established or read.
+# Long Telegram-backed streams must not be terminated by PHP's default limit.
 RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini; then \
         sed -Ei 's/^[;[:space:]]*max_execution_time[[:space:]]*=.*/max_execution_time = 0/' /app/bin/php.ini; \
     else \
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
+
+# Initialize MadelineProto in-process before backend.php loads. This mirrors
+# the known-working server architecture and targets stream startup only.
+COPY render-bootstrap.php /app/render-bootstrap.php
+RUN printf '\nauto_prepend_file = /app/render-bootstrap.php\n' >> /app/bin/php.ini
 
 # Render's reverse proxy means the upstream local-only check can reject a
 # legitimate request. Enable the bypass only when this deployment explicitly
@@ -30,7 +34,7 @@ RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
 # Render server-side Telegram bot token override.
 RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
 
-# The release contains the real frontend under /app/public.
+# Preserve the existing custom frontend.
 COPY app.js /app/public/app.js
 COPY patch-app.py /tmp/patch-app.py
 COPY patch-performance.py /tmp/patch-performance.py
