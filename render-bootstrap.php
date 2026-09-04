@@ -12,3 +12,9 @@ if (!isset($_GET['MadelineSelfRestart'])) {
 
 // Prevent the client disconnect from terminating a long Telegram-backed stream.
 @ignore_user_abort(true);
+
+// Narrow diagnostics for stream startup. This runs before backend.php, so if
+// this message appears we know the browser request reached the Render/PHP app.
+if (str_starts_with((string) ($_SERVER['REQUEST_URI'] ?? ''), '/api/download')) {
+    error_log('[STREAM DEBUG] /api/download request received');
+}
