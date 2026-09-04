@@ -6,10 +6,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates tar python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Use the developer's v1.1.0 runtime, while keeping this repository's
-# existing Render/frontend customizations below.
-RUN curl -fL \
-    "https://github.com/aiskendi/pencarimovie-downloader/releases/download/v1.1.0/pencarimovie-downloader-linux-x86_64.tar.gz" \
+RUN curl -L \
+    "https://github.com/aiskendi/pencarimovie-downloader/releases/download/v1.0.0/pencarimovie-downloader-linux-x86_64.tar.gz" \
     -o /tmp/pencarimovie.tar.gz \
     && tar -xzf /tmp/pencarimovie.tar.gz -C /app \
     && rm /tmp/pencarimovie.tar.gz \
@@ -23,19 +21,10 @@ RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
 
-# Apply only the Render compatibility changes needed for the v1.1.0 backend.
-# The upstream local-only security check remains intact for normal deployments;
-# this explicit flag only disables its Cloudflare-header classification on this
-# trusted server deployment so Render proxy traffic can use the dashboard API.
-COPY patch-render-v1.1.py /tmp/patch-render-v1.1.py
-RUN python3 /tmp/patch-render-v1.1.py \
-    && rm -f /tmp/patch-render-v1.1.py
+# Render server-side Telegram bot token override.
+RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
 
-# The release's bot login remains intact, but Render can supply the configured
-# bot token through the existing PENCARIMOVIE_BOT_TOKEN environment variable.
-# The v1.1 patch above injects this override without changing the frontend flow.
-
-# Preserve the existing custom frontend and performance work.
+# The release contains the real frontend under /app/public.
 COPY app.js /app/public/app.js
 COPY patch-app.py /tmp/patch-app.py
 COPY patch-performance.py /tmp/patch-performance.py
@@ -50,7 +39,6 @@ RUN python3 /tmp/patch-app.py \
 RUN chmod +x /app/start-render.sh
 
 ENV PENCARIMOVIE_STORAGE_DIR=/app/storage
-ENV PENCARIMOVIE_RENDER_MODE=1
 
 EXPOSE 10000
 
