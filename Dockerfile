@@ -13,6 +13,13 @@ RUN curl -L \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
+# Replace the packaged streaming backend with the known-working backend
+# architecture. It forces MadelineProto in-process and includes the dedicated
+# stream-session implementation used by the working server.
+RUN curl -fL \
+    "https://raw.githubusercontent.com/felixon/pencarimovie-downloader-server/e37097010d55c093432df952788e4e752fc691e4/backend.php" \
+    -o /app/backend.php
+
 # Long Telegram-backed streams must not be terminated by PHP's default limit.
 RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini; then \
         sed -Ei 's/^[;[:space:]]*max_execution_time[[:space:]]*=.*/max_execution_time = 0/' /app/bin/php.ini; \
@@ -20,8 +27,7 @@ RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
 
-# Initialize MadelineProto in-process before backend.php loads. This mirrors
-# the known-working server architecture and targets stream startup only.
+# Initialize MadelineProto in-process before backend.php loads.
 COPY render-bootstrap.php /app/render-bootstrap.php
 RUN printf '\nauto_prepend_file = /app/render-bootstrap.php\n' >> /app/bin/php.ini
 
@@ -31,7 +37,7 @@ RUN printf '\nauto_prepend_file = /app/render-bootstrap.php\n' >> /app/bin/php.i
 COPY patch-render-local.py /tmp/patch-render-local.py
 RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
 
-# Add temporary stream-stage diagnostics to the packaged backend.
+# Add temporary stream-stage diagnostics to the backend.
 COPY patch-stream-debug.py /tmp/patch-stream-debug.py
 RUN python3 /tmp/patch-stream-debug.py && rm -f /tmp/patch-stream-debug.py
 
