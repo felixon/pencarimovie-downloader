@@ -21,6 +21,12 @@ RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
 
+# Render's reverse proxy means the upstream local-only check can reject a
+# legitimate request. Enable the bypass only when this deployment explicitly
+# sets PENCARIMOVIE_RENDER_MODE=1.
+COPY patch-render-local.py /tmp/patch-render-local.py
+RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
+
 # Render server-side Telegram bot token override.
 RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
 
@@ -30,8 +36,6 @@ COPY patch-app.py /tmp/patch-app.py
 COPY patch-performance.py /tmp/patch-performance.py
 COPY start-render.sh /app/start-render.sh
 
-# Performance patches: don't block first paint and don't create a large burst
-# of category API calls on small Render instances.
 RUN python3 /tmp/patch-app.py \
     && python3 /tmp/patch-performance.py \
     && rm -f /tmp/patch-app.py /tmp/patch-performance.py
@@ -39,6 +43,7 @@ RUN python3 /tmp/patch-app.py \
 RUN chmod +x /app/start-render.sh
 
 ENV PENCARIMOVIE_STORAGE_DIR=/app/storage
+ENV PENCARIMOVIE_RENDER_MODE=1
 
 EXPOSE 10000
 
