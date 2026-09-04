@@ -31,6 +31,10 @@ RUN printf '\nauto_prepend_file = /app/render-bootstrap.php\n' >> /app/bin/php.i
 COPY patch-render-local.py /tmp/patch-render-local.py
 RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
 
+# Add temporary stream-stage diagnostics to the packaged backend.
+COPY patch-stream-debug.py /tmp/patch-stream-debug.py
+RUN python3 /tmp/patch-stream-debug.py && rm -f /tmp/patch-stream-debug.py
+
 # Render server-side Telegram bot token override.
 RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
 
