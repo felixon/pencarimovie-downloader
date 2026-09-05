@@ -6,16 +6,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates tar python3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L \
-    "https://github.com/aiskendi/pencarimovie-downloader/releases/download/v1.0.0/pencarimovie-downloader-linux-x86_64.tar.gz" \
+# Use the same PencariMovie v1.1.0 Linux runtime as the known-working
+# downloader-server deployment. The v1.0.0 runtime can fail to start the
+# MadelineProto stream session under FrankenPHP even when the backend forces
+# in-process mode.
+RUN curl -fL \
+    "https://github.com/aiskendi/pencarimovie-server/releases/download/v1.1.0/pencarimovie-downloader-linux-x86_64.tar.gz" \
     -o /tmp/pencarimovie.tar.gz \
     && tar -xzf /tmp/pencarimovie.tar.gz -C /app \
     && rm /tmp/pencarimovie.tar.gz \
     && chmod +x /app/bin/frankenphp
 
-# Replace the packaged streaming backend with the known-working backend
-# architecture. It forces MadelineProto in-process and includes the dedicated
-# stream-session implementation used by the working server.
+# Replace the packaged backend with the known-working stream-session
+# architecture. It forces MadelineProto in-process and uses the dedicated
+# stream-session implementation that works under FrankenPHP.
 RUN curl -fL \
     "https://raw.githubusercontent.com/felixon/pencarimovie-downloader-server/e37097010d55c093432df952788e4e752fc691e4/backend.php" \
     -o /app/backend.php
@@ -27,17 +31,15 @@ RUN if grep -qE '^[;[:space:]]*max_execution_time[[:space:]]*=' /app/bin/php.ini
         printf '\nmax_execution_time = 0\n' >> /app/bin/php.ini; \
     fi
 
-# Initialize MadelineProto in-process before backend.php loads.
+# Render compatibility bootstrap. This runs before backend.php.
 COPY render-bootstrap.php /app/render-bootstrap.php
 RUN printf '\nauto_prepend_file = /app/render-bootstrap.php\n' >> /app/bin/php.ini
 
-# Render's reverse proxy means the upstream local-only check can reject a
-# legitimate request. Enable the bypass only when this deployment explicitly
-# sets PENCARIMOVIE_RENDER_MODE=1.
+# Keep the Render-only local-request compatibility patch for the API routes.
 COPY patch-render-local.py /tmp/patch-render-local.py
 RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
 
-# Add temporary stream-stage diagnostics to the backend.
+# Temporary stream-stage diagnostics.
 COPY patch-stream-debug.py /tmp/patch-stream-debug.py
 RUN python3 /tmp/patch-stream-debug.py && rm -f /tmp/patch-stream-debug.py
 
@@ -58,6 +60,7 @@ RUN chmod +x /app/start-render.sh
 
 ENV PENCARIMOVIE_STORAGE_DIR=/app/storage
 ENV PENCARIMOVIE_RENDER_MODE=1
+ENV PENCARIMOVIE_PUBLIC_HOST=pencarimovie-downloader.onrender.com
 
 EXPOSE 10000
 
