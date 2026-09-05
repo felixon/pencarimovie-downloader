@@ -36,25 +36,14 @@ if needle in text and '[STREAM DEBUG V3] C credentials ready' not in text:
         1,
     )
 
-# Instrument API construction regardless of whether it is fully-qualified or imported.
+# Instrument the API constructor if the backend constructs it directly.
 if '[STREAM DEBUG V3] D before API constructor' not in text:
-    text, n = re.subn(
+    text = re.sub(
         r'(?m)^(\s*)(\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s+(?:\\?[A-Za-z_][A-Za-z0-9_]*\\)?API\s*\([^;]*\);)',
         r"\1error_log('[STREAM DEBUG V3] D before API constructor');\n\1\2\n\1error_log('[STREAM DEBUG V3] E after API constructor');",
         text,
         count=1,
     )
-
-# Instrument direct static MadelineProto connection if present.
-if '[STREAM DEBUG V3] F before connectToMadelineProto' not in text:
-    text = text.replace(
-        'API::connectToMadelineProto(',
-        "(error_log('[STREAM DEBUG V3] F before connectToMadelineProto'), API::connectToMadelineProto(",
-        1,
-    )
-    # Do not attempt to syntactically transform the call's closing parenthesis here;
-    # this marker is only used if the exact call exists in source. The constructor
-    # marker above is the primary diagnostic.
 
 # Preserve the existing download marker.
 needle = '$madeline->downloadToBrowser('
