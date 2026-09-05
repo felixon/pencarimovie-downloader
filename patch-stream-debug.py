@@ -5,55 +5,58 @@ path = Path('/app/backend.php')
 text = path.read_text(encoding='utf-8')
 
 # Precise MadelineProto boot diagnostics. No secrets or session contents are logged.
-if '[STREAM DEBUG V2]' not in text:
-    m = re.search(r'function\s+fd_boot_madeline\s*\([^)]*\):\s*array\s*\{', text)
-    if m:
-        insert_at = m.end()
-        diagnostic = """
-    error_log('[STREAM DEBUG V2] A entered fd_boot_madeline');
-    error_log('[STREAM DEBUG V2] B session=' . (defined('FD_SESSION_PATH') ? FD_SESSION_PATH : 'undefined'));
+m = re.search(r'function\s+fd_boot_madeline\s*\([^)]*\):\s*array\s*\{', text)
+if m and '[STREAM DEBUG V3]' not in text:
+    insert_at = m.end()
+    diagnostic = """
+    error_log('[STREAM DEBUG V3] A entered fd_boot_madeline');
+    error_log('[STREAM DEBUG V3] B session=' . (defined('FD_SESSION_PATH') ? FD_SESSION_PATH : 'undefined'));
+    register_shutdown_function(function (): void {
+        $e = error_get_last();
+        if ($e !== null) {
+            error_log('[STREAM DEBUG V3] SHUTDOWN ' . json_encode([
+                'type' => $e['type'] ?? null,
+                'message' => $e['message'] ?? null,
+                'file' => $e['file'] ?? null,
+                'line' => $e['line'] ?? null,
+            ], JSON_UNESCAPED_SLASHES));
+        } else {
+            error_log('[STREAM DEBUG V3] SHUTDOWN no-last-error');
+        }
+    });
 """
-        text = text[:insert_at] + diagnostic + text[insert_at:]
+    text = text[:insert_at] + diagnostic + text[insert_at:]
 
-        # Instrument the vendor autoloader if it occurs inside this function.
-        text = re.sub(
-            r'(?m)^(\s*)(require(?:_once)?\s*[^;]*vendor/autoload\.php[^;]*;)',
-            r"\1error_log('[STREAM DEBUG V2] C before vendor autoload');\n\1\2\n\1error_log('[STREAM DEBUG V2] D after vendor autoload');",
-            text,
-            count=1,
-        )
+# The previous V2 patch did not add markers after the WordPress credential cache.
+needle = "fd_log('api credentials cached from wordpress', ['api_id' => $apiId]);"
+if needle in text and '[STREAM DEBUG V3] C credentials ready' not in text:
+    text = text.replace(
+        needle,
+        needle + "\n        error_log('[STREAM DEBUG V3] C credentials ready; entering MadelineProto setup');",
+        1,
+    )
 
-        # Instrument API constructor, accepting both API and MadelineProto\\API.
-        text = re.sub(
-            r'(?m)^(\s*)(\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s+(?:\\?MadelineProto\\\\)?API\s*\([^;]*\);)',
-            r"\1error_log('[STREAM DEBUG V2] E before API constructor');\n\1\2\n\1error_log('[STREAM DEBUG V2] F after API constructor');",
-            text,
-            count=1,
-        )
+# Instrument API construction regardless of whether it is fully-qualified or imported.
+if '[STREAM DEBUG V3] D before API constructor' not in text:
+    text, n = re.subn(
+        r'(?m)^(\s*)(\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*new\s+(?:\\?[A-Za-z_][A-Za-z0-9_]*\\)?API\s*\([^;]*\);)',
+        r"\1error_log('[STREAM DEBUG V3] D before API constructor');\n\1\2\n\1error_log('[STREAM DEBUG V3] E after API constructor');",
+        text,
+        count=1,
+    )
 
-        # Instrument botLogin/getSelf when these calls are present as standalone statements.
-        text = re.sub(
-            r'(?m)^(\s*)(\$[A-Za-z_][A-Za-z0-9_]*->botLogin\s*\([^;]*\);)',
-            r"\1error_log('[STREAM DEBUG V2] G before botLogin');\n\1\2\n\1error_log('[STREAM DEBUG V2] H after botLogin');",
-            text,
-            count=1,
-        )
-        text = re.sub(
-            r'(?m)^(\s*)(\$[A-Za-z_][A-Za-z0-9_]*->getSelf\s*\([^;]*\);)',
-            r"\1error_log('[STREAM DEBUG V2] I before getSelf');\n\1\2\n\1error_log('[STREAM DEBUG V2] J after getSelf');",
-            text,
-            count=1,
-        )
+# Instrument direct static MadelineProto connection if present.
+if '[STREAM DEBUG V3] F before connectToMadelineProto' not in text:
+    text = text.replace(
+        'API::connectToMadelineProto(',
+        "(error_log('[STREAM DEBUG V3] F before connectToMadelineProto'), API::connectToMadelineProto(",
+        1,
+    )
+    # Do not attempt to syntactically transform the call's closing parenthesis here;
+    # this marker is only used if the exact call exists in source. The constructor
+    # marker above is the primary diagnostic.
 
-        # Add a final diagnostic before the first successful [API, null] return.
-        text = re.sub(
-            r'(?m)^(\s*)return\s*\[\s*\$([A-Za-z_][A-Za-z0-9_]*),\s*null\s*\];',
-            r"\1error_log('[STREAM DEBUG V2] K fd_boot_madeline success');\n\1return [$\2, null];",
-            text,
-            count=1,
-        )
-
-# Preserve the existing stream-start marker.
+# Preserve the existing download marker.
 needle = '$madeline->downloadToBrowser('
 if needle in text and '[STREAM DEBUG] downloadToBrowser about to start' not in text:
     text = text.replace(
@@ -63,4 +66,4 @@ if needle in text and '[STREAM DEBUG] downloadToBrowser about to start' not in t
     )
 
 path.write_text(text, encoding='utf-8')
-print('Precise MadelineProto boot diagnostics V2 applied')
+print('Precise MadelineProto boot diagnostics V3 applied')
