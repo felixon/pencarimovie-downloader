@@ -43,6 +43,19 @@ RUN python3 /tmp/patch-render-local.py && rm -f /tmp/patch-render-local.py
 COPY patch-stream-debug.py /tmp/patch-stream-debug.py
 RUN python3 /tmp/patch-stream-debug.py && rm -f /tmp/patch-stream-debug.py
 
+# Explicitly force MadelineProto's full in-process mode when the settings API
+# exposes the setter. The guard keeps the build compatible across releases.
+RUN python3 - <<'PY'
+from pathlib import Path
+p = Path('/app/backend.php')
+s = p.read_text(encoding='utf-8')
+needle = "    $settings->getLogger()->setLevel(0);"
+insert = needle + "\n    if (method_exists($settings->getIpc(), 'setSlow')) {\n        $settings->getIpc()->setSlow(true);\n    }\n    fd_log('madeline full-mode forced', ['self_restart' => isset($_GET['MadelineSelfRestart'])]);"
+if needle in s and 'madeline full-mode forced' not in s:
+    s = s.replace(needle, insert, 1)
+p.write_text(s, encoding='utf-8')
+PY
+
 # Render server-side Telegram bot token override.
 RUN sed -i "/\$botToken = trim((string) (\$input\['bot_token'\] ?? ''));/a\        \$configuredBotToken = trim((string) (\$_SERVER['PENCARIMOVIE_BOT_TOKEN'] ?? \$_ENV['PENCARIMOVIE_BOT_TOKEN'] ?? ''));\n        if (\$configuredBotToken !== '') {\n            \$botToken = \$configuredBotToken;\n        }" /app/backend.php
 
